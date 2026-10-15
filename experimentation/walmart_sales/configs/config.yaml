@@ -1,21 +1,26 @@
-# Select this experiment with --config-dir experimentation/walmart_sales/configs.
-# Select a model with model=arima or a saved sweep with -m sweep=arima_orders.
+# Compose each model family from its manifest and default settings.
 defaults:
-  - model: naive
+  - models/naive: manifest
+  - models/arima: manifest
   - _self_
-  - sweep: null
   - override hydra/job_logging: disabled
   - override hydra/hydra_logging: disabled
 
+# Change the name when copying this experiment; derived paths follow it.
 experiment:
   name: walmart_sales
   root: experimentation/${experiment.name}
 
 task: forecasting
 
+# Add new cases on each launch; reuse completed fits with matching input data.
+# Set rerun=true to refit the currently selected cases. Earlier cases are retained.
+execution:
+  rerun: false
+
+# Prepare one chronological series using explicit columns and aggregation.
 data:
   loader: csv
-  # Acquisition is independent of the forecasting loader and contains no model logic.
   source:
     provider: kaggle
     handle: aslanahmedov/walmart-sales-forecast/versions/1
@@ -25,43 +30,33 @@ data:
   date_column: Date
   target_column: Weekly_Sales
   frequency: W-FRI
-
-  # Empty filters means all stores/departments. Example: {Store: 1, Dept: 1}
   filters: {}
-
-  # These features must be known at forecast time, rather than future measurements.
   known_future_columns: [IsHoliday]
-
-  # Combine the many rows per date into ONE weekly target series.
   aggregate:
     Weekly_Sales: sum
     IsHoliday: max
 
+# Reserve holdout first, then run CV strictly inside earlier history.
 evaluation:
-  metrics: [mae, rmse, mape, smape, wape]
-
+  metrics: [mae, rmse, rmsle, mape, smape, wape]
   holdout:
     enabled: true
-    # A fraction (0.2) or a number of observations (e.g. 26).
     test_size: 0.2
-
   cv:
-    enabled: false
+    enabled: true
     n_splits: 3
     horizon: 8
     step: 8
     min_train_size: 52
 
+# Descriptive analysis runs separately from fitting.
 eda:
   directory: ${results.directory}/eda
-  # Approximately one year for this weekly dataset. Set null to disable seasonal
-  # diagnostics, or choose the cycle length appropriate to a different dataset.
   seasonal_period: 52
   stl_robust: true
   max_lags: 60
   rolling_window: 13
   difference_lag: 1
-  # null explores the whole prepared series; dates restrict the EDA window only.
   start_date: null
   end_date: null
 
@@ -71,13 +66,7 @@ results:
 artifacts:
   directory: ${experiment.root}/artifacts
 
-run:
-  # null builds a name from model settings, filters, and evaluation settings.
-  # Set a name yourself, e.g. name: holiday_baseline.
-  name: null
-
-# Launcher settings: keep input paths relative to the terminal's working directory.
-# ForgeML owns model results; Hydra's launch manifest stays under artifacts.
+# Launcher settings; fitted model names are controlled by the pipeline.
 hydra:
   output_subdir: null
   run:
@@ -87,3 +76,10 @@ hydra:
     subdir: .
   job:
     chdir: false
+
+# Enable model families here. Each family manifest controls its own sweep.
+models:
+  naive:
+    enabled: true
+  arima:
+    enabled: true

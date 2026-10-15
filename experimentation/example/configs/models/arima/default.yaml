@@ -1,0 +1,19 @@
+# One ARIMA family; selection controls how its parameters are chosen.
+name: arima
+selection: fixed
+use_exog: false
+
+# Used when selection=fixed.
+params:
+  order: [1, 1, 1]
+  seasonal_order: [0, 0, 0, 0]
+  trend: null
+
+# Used when selection=auto. m is the number of observations per season.
+search:
+  max_p: 2
+  max_q: 2
+  seasonal: true
+  m: 7
+  information_criterion: aic
+  stepwise: true

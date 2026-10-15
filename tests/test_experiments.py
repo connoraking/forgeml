@@ -11,6 +11,7 @@ from hydra import compose, initialize_config_dir
 from forgeml.tasks.forecasting.dataloaders import load_data
 from forgeml.tasks.forecasting.evaluation.metrics import evaluate
 from forgeml.tasks.forecasting.evaluation.splitting import plan_evaluation
+from forgeml.tasks.forecasting.experiments import expand_experiments
 from forgeml.tasks.forecasting.pipeline import run_experiment
 
 CONFIG_DIR = Path(__file__).resolve().parents[1] / "experimentation/example/configs"
@@ -46,7 +47,8 @@ def config(tmp_path):
     cfg.evaluation.cv.step = 3
     cfg.evaluation.cv.min_train_size = 10
 
-    return cfg
+    cfg.evaluation.cv.enabled = False
+    return expand_experiments(cfg)[0]
 
 
 def test_metrics_and_zero_sales_are_explicit() -> None:
@@ -133,7 +135,11 @@ def test_pipeline_persists_the_configured_evaluation(config, holdout, cv) -> Non
     data = load_data(config.data)
 
     for window in plan_evaluation(len(data.target), config.evaluation):
-        plot = directory / "plots" / f"{window.evaluation}.png"
+        plot = (
+            Path(config.results.directory)
+            / window.evaluation
+            / "naive/plots/forecast.png"
+        )
         assert plot.is_file()
         rows = predictions.loc[
             (predictions.evaluation == window.evaluation)
@@ -143,8 +149,11 @@ def test_pipeline_persists_the_configured_evaluation(config, holdout, cv) -> Non
             rows.predicted, data.target.iloc[window.train_end - 1]
         )
 
-    for metric in config.evaluation.metrics:
-        assert (Path(config.results.directory) / "plots" / f"{metric}.png").is_file()
+    for scope in expected:
+        for metric in config.evaluation.metrics:
+            assert (
+                Path(config.results.directory) / scope / "plots" / f"{metric}.png"
+            ).is_file()
 
 
 def test_failed_run_keeps_its_config_and_error(config) -> None:
@@ -154,7 +163,7 @@ def test_failed_run_keeps_its_config_and_error(config) -> None:
         run_experiment(config)
 
     directory = next(
-        (Path(config.artifacts.directory) / "runs").rglob("run.json")
+        (Path(config.artifacts.directory) / "configurations").rglob("run.json")
     ).parent
     report = json.loads((directory / "run.json").read_text())
 
@@ -195,7 +204,7 @@ def test_failed_fold_keeps_completed_predictions(config, monkeypatch) -> None:
         run_experiment(config)
 
     directory = next(
-        (Path(config.artifacts.directory) / "runs").rglob("run.json")
+        (Path(config.artifacts.directory) / "configurations").rglob("run.json")
     ).parent
     report = json.loads((directory / "run.json").read_text())
     metrics = json.loads((directory / "metrics.json").read_text())
@@ -224,7 +233,6 @@ def test_reports_compare_variants_without_duplicate_rows(config) -> None:
     config.model = OmegaConf.create(
         {
             "name": "arima",
-            "label": "arima_standard",
             "use_exog": False,
             "params": {"order": [0, 1, 0]},
         }
@@ -235,12 +243,11 @@ def test_reports_compare_variants_without_duplicate_rows(config) -> None:
     consolidate_reports(config.results.directory, config.artifacts.directory)
 
     for metric in config.evaluation.metrics:
-        rows = pd.read_csv(Path(config.results.directory) / f"{metric}.csv")
+        rows = pd.read_csv(Path(config.results.directory) / "holdout" / f"{metric}.csv")
 
-        assert set(rows.model) == {"naive", "arima_standard"}
+        assert set(rows.model_type) == {"naive", "arima"}
         assert len(rows) == 2
         assert rows.comparison_id.nunique() == 1
-        assert rows.evaluation.tolist() == ["holdout", "holdout"]
 
         for report in (first, second):
             actual = rows.loc[rows.run_id == report["run_id"], metric].iloc[0]
@@ -249,10 +256,8 @@ def test_reports_compare_variants_without_duplicate_rows(config) -> None:
     artifact = Path(second["artifact_directory"])
     metadata = json.loads((artifact / "run.json").read_text())
 
-    assert artifact.parent.name == "runs"
-    assert artifact.name.startswith("arima_standard__order-0-1-0")
-    assert artifact.name.endswith("__all-data__holdout-20pct")
-    assert metadata["model"] == "arima_standard"
+    assert artifact.parent.name == "configurations"
+    assert metadata["model"] == "arima"
     assert metadata["parameters"] == {"order": [0, 1, 0]}
     assert metadata["started_at"]
 
@@ -268,11 +273,11 @@ def test_reports_keep_cv_holdout_and_changed_data_distinguishable(config) -> Non
     rows.to_csv(config.data.path, index=False)
     run_experiment(config)
 
-    scores = pd.read_csv(Path(config.results.directory) / "rmse.csv")
-
-    assert len(scores) == 4
-    assert scores.comparison_id.nunique() == 4
-    assert set(scores.evaluation) == {"cv", "holdout"}
+    for scope in ("cv", "holdout"):
+        scores = pd.read_csv(Path(config.results.directory) / scope / "rmse.csv")
+        assert len(scores) == 2
+        assert scores.comparison_id.nunique() == 2
+        assert scores.artifact_path.nunique() == 2
 
 
 def test_failed_runs_are_indexed_but_do_not_enter_metric_reports(config) -> None:
@@ -281,7 +286,7 @@ def test_failed_runs_are_indexed_but_do_not_enter_metric_reports(config) -> None
     with pytest.raises(FileNotFoundError):
         run_experiment(config)
 
-    directory = Path(config.results.directory)
+    directory = Path(config.results.directory) / "holdout"
     runs = pd.read_csv(directory / "runs.csv")
 
     assert runs.status.tolist() == ["failed"]
@@ -291,29 +296,42 @@ def test_failed_runs_are_indexed_but_do_not_enter_metric_reports(config) -> None
 
 
 def test_run_names_describe_settings_and_replace_previous_output(config) -> None:
-    from forgeml.tasks.forecasting.evaluation.results import create_run_directory
+    from forgeml.tasks.forecasting.evaluation.results import (
+        configuration_key,
+        create_run_directory,
+        fitted_name,
+    )
 
     first = create_run_directory(config)
     second = create_run_directory(config)
 
-    assert first.name == "naive__all-data__holdout-20pct"
+    assert first.name == configuration_key(config)
     assert second == first
 
-    config.run.name = "baseline"
-    custom = create_run_directory(config)
+    assert first.parent.name == "configurations"
+    name = fitted_name(
+        {
+            "model_type": "arima",
+            "selection": "auto",
+            "use_exog": False,
+            "parameters": {},
+        },
+        {"order": [1, 0, 0], "seasonal_order": [0, 0, 1, 52]},
+    )
+    assert name == "auto_arima__order-1-0-0__seasonal-0-0-1-52"
 
-    assert custom.parent.name == "runs"
-    assert custom.name == "baseline"
 
-
-def test_named_order_sweep_uses_hydras_sweeper_parameters() -> None:
+def test_model_manifest_controls_joint_order_grid() -> None:
     with initialize_config_dir(version_base="1.3", config_dir=str(CONFIG_DIR)):
         config = compose(
             config_name="config",
-            overrides=["sweep=arima_orders"],
+            overrides=["models.arima.sweep.enabled=true"],
             return_hydra_config=True,
         )
 
-    assert config.model.label == "arima"
+    assert config.models.arima.name == "arima"
     assert config.evaluation.cv.enabled
-    assert config.hydra.sweeper.params["model.params.order"] == "[0,1,0],[1,1,0]"
+    assert config.models.arima.sweep.parameters["params.order"] == [
+        [0, 1, 0],
+        [1, 1, 0],
+    ]

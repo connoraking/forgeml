@@ -1,5 +1,0 @@
-# A baseline with no fitting parameters or exogenous features.
-name: naive
-label: naive
-use_exog: false
-params: {}

@@ -96,11 +96,11 @@ def test_task_dispatch_does_not_impose_forecasting_data_on_another_task(monkeypa
 def test_report_dispatch_uses_the_selected_task(monkeypatch):
     calls = []
 
-    def reporter(config, refresh_plots=False):
-        calls.append((config.task, refresh_plots))
+    def reporter(config):
+        calls.append(config.task)
 
     monkeypatch.setitem(registry._REPORTERS, "example_task", reporter)
     config = OmegaConf.create({"task": "example_task"})
-    registry.consolidate_task_results(config, refresh_plots=True)
+    registry.consolidate_task_results(config)
 
-    assert calls == [("example_task", True)]
+    assert calls == ["example_task"]

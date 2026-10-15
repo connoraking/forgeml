@@ -1,8 +1,0 @@
-# This manifest supplies ARIMA defaults. A sweep may override either order below.
-name: arima
-label: arima
-use_exog: false
-params:
-  order: [1, 1, 1]
-  seasonal_order: [0, 0, 0, 0]
-  trend: null

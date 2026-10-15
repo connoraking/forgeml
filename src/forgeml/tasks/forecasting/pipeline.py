@@ -1,6 +1,5 @@
 """Run a configured experiment and save metrics, forecasts, and fit details."""
 
-import hashlib
 import logging
 import time
 import warnings
@@ -14,7 +13,14 @@ from omegaconf import DictConfig, OmegaConf
 from .dataloaders import ForecastData, load_data
 from .evaluation.metrics import evaluate
 from .evaluation.reporting import consolidate_reports
-from .evaluation.results import create_run_directory, save_observed_series, save_results
+from .evaluation.results import (
+    create_run_directory,
+    describe_model,
+    fitted_name,
+    model_metadata,
+    save_observed_series,
+    save_results,
+)
 from .evaluation.splitting import EvaluationWindow, plan_evaluation
 from .factory import create_forecaster
 
@@ -81,7 +87,11 @@ def _run_window(
     return predictions, scores, details
 
 
-def run_experiment(config: DictConfig, launch_metadata: dict | None = None) -> dict:
+def run_experiment(
+    config: DictConfig,
+    launch_metadata: dict | None = None,
+    refresh_reports: bool = True,
+) -> dict:
     """Evaluate the configured plan and replace this variant's previous output."""
     directory = create_run_directory(config)
     predictions = []
@@ -90,10 +100,9 @@ def run_experiment(config: DictConfig, launch_metadata: dict | None = None) -> d
         "task": "forecasting",
         "experiment": config.experiment.name,
         "run_id": f"run-{uuid4().hex[:12]}",
-        "run_name": directory.name,
-        "model": config.model.get("label", config.model.name),
-        "model_type": config.model.name,
-        "parameters": OmegaConf.to_container(config.model.params, resolve=True),
+        "run_name": describe_model(config.model),
+        "model": config.model.name,
+        **model_metadata(config.model),
         "data_config": OmegaConf.to_container(config.data, resolve=True),
         "requested_metrics": list(config.evaluation.metrics),
         "started_at": datetime.now(UTC).isoformat(),
@@ -110,8 +119,8 @@ def run_experiment(config: DictConfig, launch_metadata: dict | None = None) -> d
         data = load_data(config.data)
         save_observed_series(directory, data.target)
         # Matching dates alone do not prove that two runs used the same target data.
-        target_hash = pd.util.hash_pandas_object(data.target, index=True).to_numpy()
-        report["target_fingerprint"] = hashlib.sha256(target_hash.tobytes()).hexdigest()
+        report["target_fingerprint"] = data.fingerprint()
+        report["input_fingerprint"] = data.fingerprint(config.model.use_exog)
         report["dataset"] = {
             "path": str(Path(config.data.path).expanduser().resolve()),
             "points": len(data.target),
@@ -128,7 +137,8 @@ def run_experiment(config: DictConfig, launch_metadata: dict | None = None) -> d
             scores.append(window_scores)
             report["windows"].append(details)
 
-            print(f"{window.evaluation} fold={window.fold}: {window_scores}")
+            selected = fitted_name(report, details["model_fit"])
+            print(f"{window.evaluation} fold={window.fold} {selected}: {window_scores}")
 
         # Pooled CV metrics evaluate all validation forecasts together. Overlapping
         # windows intentionally include each forecast made for a given date.
@@ -149,13 +159,23 @@ def run_experiment(config: DictConfig, launch_metadata: dict | None = None) -> d
         report["status"] = "failed"
         report["error"] = {"type": type(error).__name__, "message": str(error)}
         save_results(directory, report, predictions, scores)
-        consolidate_reports(config.results.directory, config.artifacts.directory)
+        if refresh_reports:
+            consolidate_reports(
+                config.results.directory,
+                config.artifacts.directory,
+                config.evaluation.metrics,
+            )
         logger.error("Experiment failed; details saved in %s", directory)
         raise
 
     save_results(directory, report, predictions, scores)
-    consolidate_reports(config.results.directory, config.artifacts.directory)
-    print(f"Artifacts: {directory}")
-    print(f"Metric reports: {config.results.directory}")
+    if refresh_reports:
+        consolidate_reports(
+            config.results.directory,
+            config.artifacts.directory,
+            config.evaluation.metrics,
+        )
+    if refresh_reports:
+        print(f"Results: {config.results.directory}")
 
     return report

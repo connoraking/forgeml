@@ -1,8 +1,0 @@
-# Daily observations with a weekly seasonal cycle. Adapt the period to your data.
-name: arima
-label: arima_seasonal
-use_exog: false
-params:
-  order: [1, 0, 0]
-  seasonal_order: [1, 0, 0, 7]
-  trend: null

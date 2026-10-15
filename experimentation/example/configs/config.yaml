@@ -1,50 +1,53 @@
-# Copy this experiment directory, change experiment.name, and configure real data.
-# Model and sweep files are resolved within this config directory.
+# Compose each model family from its manifest and default settings.
 defaults:
-  - model: naive
+  - models/naive: manifest
+  - models/arima: manifest
   - _self_
-  - sweep: null
   - override hydra/job_logging: disabled
   - override hydra/hydra_logging: disabled
 
+# Change the name when copying this experiment; derived paths follow it.
 experiment:
   name: example
-  # Changing the name moves data/output paths together. Override root if needed.
   root: experimentation/${experiment.name}
 
 task: forecasting
 
+# Add new cases on each launch; reuse completed fits with matching input data.
+# Set rerun=true to refit the currently selected cases. Earlier cases are retained.
+execution:
+  rerun: false
+
+# Prepare one chronological series using explicit columns and aggregation.
 data:
   loader: csv
   source:
     provider: local
     directory: ${experiment.root}/data
-  # Supply your own real CSV. The template does not generate or download data.
   path: ${data.source.directory}/series.csv
   date_column: date
   target_column: value
   frequency: D
   filters: {}
   known_future_columns: []
-  # Leave null for one row per date; otherwise declare column aggregation rules.
   aggregate: null
 
+# Reserve holdout first, then run CV strictly inside earlier history.
 evaluation:
-  metrics: [mae, rmse, mape, smape, wape]
+  metrics: [mae, rmse, rmsle, mape, smape, wape]
   holdout:
     enabled: true
     test_size: 0.2
   cv:
-    enabled: false
+    enabled: true
     n_splits: 3
     horizon: 7
     step: 7
     min_train_size: 28
 
+# Descriptive analysis runs separately from fitting.
 eda:
   directory: ${results.directory}/eda
-  # This example assumes daily observations with a weekly cycle. Change both
-  # data.frequency and the seasonal periods to match your dataset.
   seasonal_period: 7
   stl_robust: true
   max_lags: 30
@@ -55,13 +58,11 @@ eda:
 
 results:
   directory: ${experiment.root}/results
+
 artifacts:
   directory: ${experiment.root}/artifacts
-run:
-  # null names results using model parameters, filters, and evaluation settings.
-  name: null
 
-# Launcher housekeeping. No working-directory changes or timestamped run folders.
+# Launcher settings; fitted model names are controlled by the pipeline.
 hydra:
   output_subdir: null
   run:
@@ -71,3 +72,10 @@ hydra:
     subdir: .
   job:
     chdir: false
+
+# Enable model families here. Each family manifest controls its own sweep.
+models:
+  naive:
+    enabled: true
+  arima:
+    enabled: true

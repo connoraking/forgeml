@@ -1,0 +1,29 @@
+# Compare fixed orders and automatic seasonal order selection within ARIMA.
+defaults:
+  - default
+  - _self_
+
+sweep:
+  # false runs default.yaml once. true runs the variants/grid below.
+  enabled: true
+  parameters: {}
+  variants:
+    - params:
+        order: [1, 1, 1]
+        seasonal_order: [0, 0, 0, 0]
+    - params:
+        order: [1, 0, 0]
+        seasonal_order: [1, 0, 0, 52]
+    - use_exog: true
+
+    # Hand-picked seasonal ARIMA with the configured future-known regressors.
+    - selection: fixed
+      use_exog: true
+      params:
+        order: [1, 0, 0]
+        seasonal_order: [1, 0, 0, 52]
+
+    # Automatic variants use search from default.yaml, not the fixed params above.
+    - selection: auto
+    - selection: auto
+      use_exog: true

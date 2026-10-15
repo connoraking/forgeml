@@ -1,0 +1,7 @@
+# With sweep.enabled=false, run default.yaml once.
+defaults:
+- default
+- _self_
+sweep:
+  enabled: false
+  parameters: {}

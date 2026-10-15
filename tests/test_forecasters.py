@@ -11,7 +11,6 @@ from omegaconf import OmegaConf
 from forgeml.tasks.forecasting.factory import create_forecaster
 from forgeml.tasks.forecasting.models import (
     ARIMAForecaster,
-    AutoARIMAForecaster,
     BaseForecaster,
     NaiveForecaster,
 )
@@ -34,10 +33,15 @@ def test_base_forecaster_is_abstract() -> None:
 
 
 @pytest.mark.parametrize(
-    "model", [NaiveForecaster, ARIMAForecaster, AutoARIMAForecaster]
+    "model,options",
+    [
+        (NaiveForecaster, {}),
+        (ARIMAForecaster, {}),
+        (ARIMAForecaster, {"selection": "auto"}),
+    ],
 )
-def test_models_require_a_fit_and_positive_horizon(model, history) -> None:
-    forecaster = model()
+def test_models_require_a_fit_and_positive_horizon(model, options, history) -> None:
+    forecaster = model(**options)
 
     with pytest.raises(RuntimeError):
         forecaster.predict(2)
@@ -58,13 +62,13 @@ def test_naive_repeats_last_value(history) -> None:
         model.fit(pd.Series([1.0, np.nan]))
 
 
-@pytest.mark.parametrize("model_type", [ARIMAForecaster, AutoARIMAForecaster])
-def test_arima_exog_requires_aligned_features(model_type, history) -> None:
+@pytest.mark.parametrize("selection", ["fixed", "auto"])
+def test_arima_exog_requires_aligned_features(selection, history) -> None:
     exog = pd.DataFrame(
         {"holiday": np.arange(len(history)) % 2, "weekday": history.index.dayofweek},
         index=history.index,
     )
-    model = model_type()
+    model = ARIMAForecaster(selection=selection)
 
     with pytest.raises(ValueError, match="index"):
         model.fit(history, exog.set_axis(pd.RangeIndex(len(history))))
@@ -90,7 +94,7 @@ def test_arima_exog_requires_aligned_features(model_type, history) -> None:
 
 
 def test_auto_arima_records_selected_order(history) -> None:
-    model = AutoARIMAForecaster(search={"d": 0, "max_p": 1, "max_q": 1})
+    model = ARIMAForecaster(selection="auto", search={"d": 0, "max_p": 1, "max_q": 1})
     model.fit(history)
 
     details = model.describe_fit()
@@ -113,22 +117,28 @@ def test_factory_constructs_without_fitting() -> None:
 
 
 @pytest.mark.parametrize(
-    "choice",
-    ["naive", "arima", "arima_seasonal", "arima_with_exog", "auto_arima"],
+    "choice,overrides",
+    [
+        ("naive", []),
+        ("arima", []),
+        ("arima", ["models.arima.params.seasonal_order=[1,0,0,7]"]),
+        ("arima", ["models.arima.use_exog=true"]),
+        ("arima", ["models.arima.selection=auto"]),
+    ],
 )
-def test_manifests_compose_under_model(choice) -> None:
+def test_manifests_compose_under_model(choice, overrides) -> None:
     with initialize_config_dir(version_base=None, config_dir=str(CONFIG_DIR)):
-        config = compose(config_name="config", overrides=[f"model={choice}"])
+        config = compose(config_name="config", overrides=overrides)
 
-    assert "arima" not in config.model
-    assert isinstance(create_forecaster(config.model), BaseForecaster)
+    assert "arima" not in config.models[choice]
+    assert isinstance(create_forecaster(config.models[choice]), BaseForecaster)
 
 
 def test_hydra_parameter_override() -> None:
     with initialize_config_dir(version_base=None, config_dir=str(CONFIG_DIR)):
         config = compose(
             config_name="config",
-            overrides=["model=arima", "model.params.order=[3,1,2]"],
+            overrides=["models.arima.params.order=[3,1,2]"],
         )
 
-    assert create_forecaster(config.model).order == (3, 1, 2)
+    assert create_forecaster(config.models.arima).order == (3, 1, 2)

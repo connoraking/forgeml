@@ -3,14 +3,12 @@
 from omegaconf import DictConfig, OmegaConf
 
 from .models.arima import ARIMAForecaster
-from .models.auto_arima import AutoARIMAForecaster
 from .models.base import BaseForecaster
 from .models.naive import NaiveForecaster
 
 _REGISTRY = {
     "naive": NaiveForecaster,
     "arima": ARIMAForecaster,
-    "auto_arima": AutoARIMAForecaster,
 }
 
 
@@ -22,7 +20,10 @@ def create_forecaster(config: DictConfig) -> BaseForecaster:
     if name not in _REGISTRY:
         raise ValueError(f"Unknown forecasting model: {name!r}")
 
-    # Only params reach the constructor. Pipeline settings stay in the manifest.
-    parameters = manifest.get("params", {})
+    parameters = dict(manifest.get("params", {}))
+    if name == "arima":
+        # Automatic order selection is an ARIMA setting, not another model type.
+        parameters["selection"] = manifest.get("selection", "fixed")
+        parameters["search"] = manifest.get("search", {})
 
     return _REGISTRY[name](**parameters)

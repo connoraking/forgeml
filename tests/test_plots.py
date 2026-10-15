@@ -1,7 +1,5 @@
 """Plot correctness: forecast alignment and separated metric comparison panels."""
 
-import json
-
 import numpy as np
 import pandas as pd
 from matplotlib.image import imread
@@ -25,10 +23,12 @@ def test_cv_plot_combines_folds_with_their_training_history(tmp_path, monkeypatc
     predictions.to_csv(tmp_path / "predictions.csv", index=False)
     metadata = {
         "model": "naive",
+        "model_type": "naive",
+        "use_exog": False,
+        "parameters": {},
         "status": "completed",
         "data_config": {"target_column": "sales"},
     }
-    (tmp_path / "run.json").write_text(json.dumps(metadata))
     windows = [
         {
             "evaluation": "cv",
@@ -55,7 +55,8 @@ def test_cv_plot_combines_folds_with_their_training_history(tmp_path, monkeypatc
             "test_end": str(dates[8]),
         },
     ]
-    (tmp_path / "metrics.json").write_text(json.dumps({"windows": windows}))
+    for window in windows:
+        window["model_fit"] = {}
 
     observed = {}
     original_save = plots._save_figure
@@ -67,25 +68,27 @@ def test_cv_plot_combines_folds_with_their_training_history(tmp_path, monkeypatc
         return original_save(figure, path)
 
     monkeypatch.setattr(plots, "_save_figure", capture)
-    paths = plots.plot_run_forecasts(tmp_path, metadata)
+    paths = plots.plot_run_forecasts(
+        {
+            "metadata": metadata,
+            "evaluation": {"windows": windows},
+            "series": series,
+            "predictions": predictions,
+        },
+        tmp_path,
+        "cv",
+    )
 
-    assert {path.name for path in paths} == {"cv.png", "holdout.png"}
+    assert {path.name for path in paths} == {"forecast.png", "cv_and_holdout.png"}
     # Initial training observations are visible, and the CV chart stops before holdout.
-    np.testing.assert_array_equal(observed["cv"]["Observed target"], np.arange(7))
-    np.testing.assert_array_equal(observed["cv"]["Fold 1 forecast"], [2.0, 2.0])
-    np.testing.assert_array_equal(observed["cv"]["Fold 2 forecast"], [4.0, 4.0])
-    np.testing.assert_array_equal(observed["holdout"]["Observed target"], np.arange(9))
-    np.testing.assert_array_equal(observed["holdout"]["Holdout forecast"], [6.0, 6.0])
+    np.testing.assert_array_equal(observed["forecast"]["Observed"], np.arange(7))
+    np.testing.assert_array_equal(observed["forecast"]["CV fold 1"], [2.0, 2.0])
+    np.testing.assert_array_equal(observed["forecast"]["CV fold 2"], [4.0, 4.0])
+    np.testing.assert_array_equal(observed["cv_and_holdout"]["Observed"], np.arange(9))
+    np.testing.assert_array_equal(observed["cv_and_holdout"]["Holdout"], [6.0, 6.0])
 
     for path in paths:
-        assert imread(path).shape[:2] == (750, 1800)
-
-    modified = [path.stat().st_mtime_ns for path in paths]
-    plots.plot_run_forecasts(tmp_path, metadata)
-    assert [path.stat().st_mtime_ns for path in paths] == modified
-
-    plots.plot_run_forecasts(tmp_path, metadata, refresh=True)
-    assert [path.stat().st_mtime_ns for path in paths] != modified
+        assert imread(path).shape[:2] == (825, 1950)
 
 
 def test_metric_plot_separates_groups_and_labels_undefined_scores(
@@ -123,9 +126,9 @@ def test_metric_plot_separates_groups_and_labels_undefined_scores(
     assert len(observed) == 2
     assert observed[0]["bars"] == 2
     assert observed[0]["labels"] == ["2.50", "Undefined"]
-    assert "first" in observed[0]["title"]
+    assert "Matching target" in observed[0]["title"]
     assert observed[1]["bars"] == 1
-    assert "other" in observed[1]["title"]
+    assert "Matching target" in observed[1]["title"]
 
 
 def test_empty_metric_report_produces_a_clear_placeholder(tmp_path, monkeypatch):
@@ -141,4 +144,4 @@ def test_empty_metric_report_produces_a_clear_placeholder(tmp_path, monkeypatch)
     path = plots.plot_metric_comparison(rows, "rmse", tmp_path)
 
     assert messages == ["No completed results"]
-    assert imread(path).shape[:2] == (450, 1500)
+    assert imread(path).shape[:2] == (450, 1950)

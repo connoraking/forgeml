@@ -1,5 +1,0 @@
-# Forecast the last observation in each training window.
-name: naive
-label: naive
-use_exog: false
-params: {}

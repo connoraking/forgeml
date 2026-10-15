@@ -17,7 +17,11 @@ def train(config: DictConfig) -> None:
     # also works directly with a composed DictConfig, without a Hydra runtime.
     hydra_config = HydraConfig.get()
     launch_metadata = {
-        "model_choice": hydra_config.runtime.choices.get("model"),
+        "model_choices": {
+            key: value
+            for key, value in hydra_config.runtime.choices.items()
+            if key.startswith("models/")
+        },
         "overrides": list(hydra_config.overrides.task),
         "job_number": hydra_config.job.get("num"),
     }

@@ -1,9 +1,0 @@
-# @package model
-# These are WEEKLY observations: an annual seasonal period is approximately 52.
-name: arima
-label: arima_seasonal
-use_exog: false
-params:
-  order: [1, 0, 0]
-  seasonal_order: [1, 0, 0, 52]
-  trend: null

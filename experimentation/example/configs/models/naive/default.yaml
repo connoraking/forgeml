@@ -1,0 +1,4 @@
+# Constructor defaults for this model family.
+name: naive
+use_exog: false
+params: {}

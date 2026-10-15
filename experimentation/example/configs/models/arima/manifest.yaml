@@ -1,0 +1,14 @@
+# Enable this grid to cross two ordinary orders with two seasonal orders.
+defaults:
+  - default
+  - _self_
+
+sweep:
+  enabled: false
+  parameters:
+    params.order:
+      - [0, 1, 0]
+      - [1, 1, 0]
+    params.seasonal_order:
+      - [0, 0, 0, 0]
+      - [1, 0, 0, 7]
