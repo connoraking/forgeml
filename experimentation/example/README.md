@@ -1,140 +1,119 @@
 # Forecasting experiment template
 
-This is a self-contained starting point for a real dataset. It does not use or import the Walmart experiment, and it contains no generated sample data. Deleting `experimentation/walmart_sales` does not affect this experiment or the CLI entry points.
+Copy this directory to start an experiment using real data. No script depends on Walmart, and the template contains no generated dataset.
 
-## Create an experiment
+## Setup
 
-Run from the repository root:
+From the repository root:
 
 ```bash
 cp -R experimentation/example experimentation/my_forecast
 mkdir -p experimentation/my_forecast/data
 ```
 
-Edit `experimentation/my_forecast/configs/config.yaml`:
-
-- Set `experiment.name: my_forecast`. Its default root becomes `experimentation/my_forecast`.
-- Place your real CSV at `data/series.csv`, or change `data.path` to its location.
-- Set `date_column`, `target_column`, `frequency`, and any filters/aggregation rules.
-- Set holdout/CV sizes for your history and forecast horizon.
-- Adjust `eda.seasonal_period`, the seasonal model's period, and the sweep periods. The template assumes daily observations with a weekly cycle of 7; those values are examples of settings to adapt, not inferred properties of your data.
-
-No Python files need to change for another dataset using the CSV loader. Other input formats require a loader implementation. Only the forecasting task is currently implemented.
-
-The optional `model=arima_with_exog` manifest requires `data.known_future_columns` to list features available at forecast time. The default model-comparison sweep excludes it because the template starts with no future features.
-
-## Terminal commands
+In `configs/config.yaml`, set `experiment.name: my_forecast`, place your real CSV at `data/series.csv` or change `data.path`, and set date/target columns, frequency, filters, and aggregation. Adapt evaluation lengths and seasonal periods; this template assumes daily observations with a weekly cycle of seven. CV and holdout are enabled, so provide enough training history for both or disable one.
 
 ```bash
-# Inspect the final configuration without reading data or fitting a model.
 uv run python scripts/train.py --config-dir experimentation/my_forecast/configs --cfg job --resolve
-
-# A single model, chosen from this experiment's model directory.
-uv run python scripts/train.py --config-dir experimentation/my_forecast/configs model=arima
-
-# Enable both CV and the final holdout.
-uv run python scripts/train.py --config-dir experimentation/my_forecast/configs model=arima evaluation.cv.enabled=true
-
-# Use the same experiment for EDA and local-source preparation.
+uv run python scripts/train.py --config-dir experimentation/my_forecast/configs
 uv run python scripts/eda.py --config-dir experimentation/my_forecast/configs
 uv run python scripts/prepare_data.py --config-dir experimentation/my_forecast/configs
-
-# Rebuild saved evaluation reports without fitting models.
-uv run python scripts/consolidate_results.py --config experimentation/my_forecast/configs/config.yaml --refresh-plots
 ```
 
-The training, EDA, and preparation scripts accept `--config-dir` and default to the filename `config.yaml`. Use `--config-name another_config` for another main filename in that directory. The report script takes the YAML file directly with `--config`.
+Preparation checks the configured local source directory; it does not fabricate data. Other source providers, such as Kaggle, can be configured under `data.source`. New input formats need a loader implementation; other CSV datasets only need config changes.
 
-Relative config directories and data/output paths are interpreted from your terminal's working directory. Run these commands from the repository root. You can supply absolute paths and override `experiment.root=/absolute/path/to/my_forecast` for another location. Model and sweep choices are looked up inside the selected config directory, independently of the current dataset's name.
+## What controls execution
 
-## How Hydra builds the config
+The main file's final section enables model families:
 
-The main file starts with:
+```yaml
+models:
+  naive:
+    enabled: true
+  arima:
+    enabled: true
+```
+
+Each `models/<family>/default.yaml` contains model constructor settings. Each `manifest.yaml` loads its default and controls its own sweep. ARIMA includes both fixed and automatic order selection; there is no separate Auto-ARIMA family. Set `selection: fixed` to use `params`, or `selection: auto` to use `search` from the same ARIMA default file.
+
+The ARIMA manifest demonstrates a normal YAML grid:
 
 ```yaml
 defaults:
-  - model: naive
+  - default
   - _self_
-  - sweep: null
+
+sweep:
+  enabled: false
+  parameters:
+    params.order:
+      - [0, 1, 0]
+      - [1, 1, 0]
+    params.seasonal_order:
+      - [0, 0, 0, 0]
+      - [1, 0, 0, 7]
 ```
 
-1. `model: naive` loads `model/naive.yaml` under `cfg.model`.
-2. `_self_` merges the main file's data, evaluation, and output settings.
-3. `sweep: null` selects no sweep unless you request one. `sweep=arima_orders` loads `sweep/arima_orders.yaml` after the main settings. That file can enable CV and select ARIMA as the base model.
-4. Terminal value overrides apply to the composed config. `model=arima` changes the selected model manifest; `model.params.order=[2,1,0]` changes a parameter. Quote overrides containing brackets in your shell.
-5. `${experiment.name}` and similar expressions reference other config values. Changing the experiment name updates the root and derived output paths. `--cfg job --resolve` shows the final values.
-
-The last two defaults in the full main file only disable Hydra's automatic log files. The `hydra` section keeps working-directory changes off and stores its sweep manifest under `artifacts/sweeps`. The forecasting pipeline determines result names and saves CSV/JSON/PNG outputs.
-
-`# @package _global_` in a sweep means its `evaluation` and `hydra` sections merge at the root. `override /model: arima` changes the selected model defaults. These directives control composition; they do not create a separate kind of model.
-
-Hydra is optional as an architectural choice: plain YAML plus a custom loader could do the same job. We use Hydra's composition, terminal overrides, and basic sweeper so those mechanisms do not need a separate implementation. These are [standard Hydra features](https://hydra.cc/docs/1.3/tutorials/basic/running_your_app/multi-run/).
-
-## Sweep both ARIMA orders
+Set `enabled: true` to run all four combinations. Each complete order is one choice. Disable it to run `default.yaml` once. Explicit paired combinations can instead be listed under `sweep.variants`, each merging settings into the default. The Walmart ARIMA manifest shows that pattern, including `selection: auto` variants alongside fixed-order variants. To sweep automatic search settings, use `selection: auto` as the default and grid keys such as `search.m` or `search.max_p` instead of `params.order`.
 
 ```bash
-uv run python scripts/train.py --config-dir experimentation/my_forecast/configs -m sweep=arima_orders
+# Disable all ARIMA configurations, including automatic searches.
+uv run python scripts/train.py --config-dir experimentation/my_forecast/configs models.arima.enabled=false
+
+# Enable the ARIMA grid from the terminal.
+uv run python scripts/train.py --config-dir experimentation/my_forecast/configs models.arima.sweep.enabled=true
+
+# Run one automatic seasonal search (the example default uses m=7).
+uv run python scripts/train.py --config-dir experimentation/my_forecast/configs models.arima.sweep.enabled=false models.arima.selection=auto
+
+# Change a default parameter for this invocation.
+uv run python scripts/train.py --config-dir experimentation/my_forecast/configs 'models.arima.params.order=[2,1,0]'
 ```
 
-The saved sweep contains:
+A parameter already listed in an enabled grid takes its values from the grid. Edit the grid, or disable the sweep when you want one terminal override to be the sole choice. Feature-based models need configured `data.known_future_columns` that are available at forecast time; `use_exog: true` enables those features.
+
+## Adding configurations over time
+
+Append hand-picked entries to a family's `sweep.variants`, with `sweep.enabled: true` and `sweep.parameters: {}`. For example, adapt the seasonal period to your data:
 
 ```yaml
-hydra:
-  sweeper:
-    params:
-      model.params.order: "[0,1,0],[1,1,0]"
-      model.params.seasonal_order: "[0,0,0,0],[1,0,0,7]"
+sweep:
+  enabled: true
+  parameters: {}
+  variants:
+    - selection: fixed
+      use_exog: true
+      params:
+        order: [1, 0, 0]
+        seasonal_order: [1, 0, 0, 7]
 ```
 
-This produces every combination:
+Set `data.known_future_columns` before enabling exogenous variables. Each variant inherits family defaults independently.
 
-| Job | `order` | `seasonal_order` |
-| --- | --- | --- |
-| 1 | `[0,1,0]` | `[0,0,0,0]` |
-| 2 | `[0,1,0]` | `[1,0,0,7]` |
-| 3 | `[1,1,0]` | `[0,0,0,0]` |
-| 4 | `[1,1,0]` | `[1,0,0,7]` |
+`execution.rerun: false` makes repeated training launches incremental: matching completed cases are skipped, failed/incomplete cases are retried, and additions are trained. Data changes are detected from the prepared observations and any regressors used. Removed variants and disabled families keep their saved results. To refit selected cases intentionally, pass `execution.rerun=true`.
 
-`order` is `[p,d,q]`; `seasonal_order` is `[P,D,Q,period]`. One bracketed list is one choice. The outer YAML string contains Hydra's comma-separated choice syntax. `[0,0,0,0]` disables the seasonal component.
+Training refreshes aggregate CSVs and forecast plots automatically. The analysis command in the Results section performs the same rebuild from all saved fit artifacts, without model training or raw data access.
 
-`model/arima.yaml` supplies defaults for the same ARIMA implementation used by the seasonal manifest. The grid overrides both constructor parameters. A manifest's filename does not restrict which orders can be swept.
+## Hydra
 
-You can also supply both axes directly:
+The main `defaults` list composes each model family's manifest. Each manifest loads its `default.yaml`; `_self_` merges the current file's settings afterward. The main file then sets data/evaluation settings and family switches. Terminal overrides apply to that composed object. `${experiment.root}` references another config value.
+
+The experiment runner expands each manifest's `sweep.parameters` grid and `variants`; no Hydra `-m` flag is needed. Hydra supplies composition and terminal overrides, while the forecasting pipeline controls fitting, naming, and reports. `--cfg job --resolve` prints the final settings without reading data or fitting models.
+
+Relative config directories and data/output paths are interpreted from the terminal's working directory. Run from the repository root or supply absolute paths. Use `--config-name other_config` for another main YAML filename.
+
+## Results
+
+`results/cv` and `results/holdout` independently contain model directories, a run index, one CSV per metric, and comparison plots. Model directory names show fitted orders; automatic models use the same name with `auto_` prefixed. CV folds stay together, with varying automatic orders listed by fold in the directory name and in `orders.csv`.
+
+Each model has its split plot and a CV-plus-holdout plot. Both split directories contain overlaid and stacked all-model forecasts. `results/plots` contains the all-model views with CV and holdout together. Observed training history is visible throughout, and scores remain separate by evaluation.
+
+The underlying config/fit artifacts are kept under `artifacts/configurations`. Generated files are ignored by Git. EDA remains under `results/eda` and does not train models.
 
 ```bash
-uv run python scripts/train.py --config-dir experimentation/my_forecast/configs -m model=arima 'model.params.order=[0,1,0],[1,1,0]' 'model.params.seasonal_order=[0,0,0,0],[1,0,0,7]'
+uv run python scripts/analyze.py --config-dir experimentation/my_forecast/configs
 ```
 
-Without `-m`, a bracketed list such as `'model.params.order=[2,1,0]'` is one parameter value, not a grid. Selecting a saved sweep without `-m` loads its shared settings but does not expand its parameter choices. The basic launcher executes jobs sequentially on this machine.
+This rebuilds the saved result tables and plots without rerunning fits.
 
-`--cfg job --resolve` prints the base job, not the expanded grid. To inspect the saved axes without launching jobs:
-
-```bash
-uv run python scripts/train.py --config-dir experimentation/my_forecast/configs sweep=arima_orders --cfg hydra --package hydra.sweeper
-```
-
-## Sweep specific pairs
-
-When you want selected pairs instead of every combination:
-
-```bash
-uv run python scripts/train.py --config-dir experimentation/my_forecast/configs -m sweep=arima_pairs
-```
-
-`arima_pairs.yaml` sweeps two dictionaries under `model.params`. Each dictionary changes `order` and `seasonal_order` together, producing exactly two jobs. Unspecified parameters keep their manifest values.
-
-## Compare models or create another sweep
-
-```bash
-uv run python scripts/train.py --config-dir experimentation/my_forecast/configs -m sweep=model_comparison
-```
-
-`model_comparison.yaml` selects complete model manifests. Keep an ARIMA parameter grid separate from a comparison that includes naive or another model with different constructor arguments. A future Transformer manifest can sweep its own parameters through the same mechanism after its model adapter is implemented.
-
-To create another sweep, copy a file in `configs/sweep`, change its model selection and choices, and pass its filename without `.yaml` as `sweep=your_sweep`. No source-code registration is needed for a new sweep.
-
-## Outputs and tracking
-
-Detailed files go under `artifacts/runs/<descriptive-name>`; consolidated metrics and plots go under `results`. Each configuration keeps its latest output. Hydra's numbered terminal jobs are launch indices, not attempts or result-folder names.
-
-MLflow is a separate tracking tool. It does not replace config composition or this grid launcher. Current tracking consists of the saved CSV/JSON/PNG artifacts; MLflow logging is not implemented.
+The metric list includes `rmsle` (Root Mean Squared Logarithmic Error). Analysis recomputes the configured metrics from saved forecasts, so adding a metric requires no retraining. RMSLE uses natural `log1p`, supports zeros, and returns an undefined score if any actual or prediction is negative.
