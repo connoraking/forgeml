@@ -1,0 +1,8 @@
+# Select future-known columns in data.known_future_columns before using this model.
+name: arima
+label: arima_with_exog
+use_exog: true
+params:
+  order: [1, 1, 1]
+  seasonal_order: [0, 0, 0, 0]
+  trend: null

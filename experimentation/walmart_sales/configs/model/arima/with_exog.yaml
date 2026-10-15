@@ -1,0 +1,9 @@
+# @package model
+# Use the holiday flag from data.known_future_columns in addition to target history.
+name: arima
+label: arima_with_exog
+use_exog: true
+params:
+  order: [1, 1, 1]
+  seasonal_order: [0, 0, 0, 0]
+  trend: null

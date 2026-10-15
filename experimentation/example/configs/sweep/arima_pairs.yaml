@@ -1,0 +1,17 @@
+# @package _global_
+# For SPECIFIC pairs, sweep dictionaries rather than crossing independent axes.
+defaults:
+  - override /model: arima
+
+evaluation:
+  cv:
+    enabled: true
+
+hydra:
+  sweeper:
+    params:
+      # Exactly two jobs: each dictionary changes both params together.
+      # Other params, such as trend, keep their values from model/arima.yaml.
+      model.params: >-
+        {order:[0,1,0],seasonal_order:[0,0,0,0]},
+        {order:[1,1,0],seasonal_order:[1,0,0,7]}

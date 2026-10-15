@@ -1,0 +1,10 @@
+# @package _global_
+# Compare model manifests. Put parameter grids in separate, model-specific sweeps.
+evaluation:
+  cv:
+    enabled: true
+
+hydra:
+  sweeper:
+    params:
+      model: naive,arima,arima_seasonal,auto_arima

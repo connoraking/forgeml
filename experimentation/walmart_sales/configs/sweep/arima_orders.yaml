@@ -1,0 +1,16 @@
+# @package _global_
+# Select with -m sweep=arima_orders and this experiment's --config-dir.
+defaults:
+  - override /model: arima
+
+evaluation:
+  cv:
+    enabled: true
+
+hydra:
+  sweeper:
+    params:
+      # Two independent axes: 3 orders × 2 seasonal orders = 6 jobs.
+      # Brackets form one tuple; commas BETWEEN brackets separate choices.
+      model.params.order: "[0,1,0],[1,1,0],[1,1,1]"
+      model.params.seasonal_order: "[0,0,0,0],[1,0,0,52]"

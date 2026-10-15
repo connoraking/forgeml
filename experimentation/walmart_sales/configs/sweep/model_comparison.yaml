@@ -1,0 +1,11 @@
+# @package _global_
+# Each choice selects a complete model manifest. No ARIMA-only grid reaches naive.
+
+evaluation:
+  cv:
+    enabled: true
+
+hydra:
+  sweeper:
+    params:
+      model: naive,arima,arima/seasonal,arima/with_exog,arima/auto
