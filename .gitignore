@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+outputs/
+multirun/
+experimentation/**/data/
+experimentation/**/results/*
+!experimentation/**/results/.gitkeep
+experimentation/**/artifacts/*
+!experimentation/**/artifacts/.gitkeep

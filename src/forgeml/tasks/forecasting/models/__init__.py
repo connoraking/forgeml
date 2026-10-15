@@ -1,9 +1,8 @@
-"""Forecasting model implementations and construction helpers."""
+"""Forecasting model implementations. Construction lives in forecasting.factory."""
 
 from .arima import ARIMAForecaster
 from .auto_arima import AutoARIMAForecaster
 from .base import BaseForecaster
-from .factory import create_forecaster
 from .naive import NaiveForecaster
 
 __all__ = [
@@ -11,5 +10,4 @@ __all__ = [
     "AutoARIMAForecaster",
     "BaseForecaster",
     "NaiveForecaster",
-    "create_forecaster",
 ]

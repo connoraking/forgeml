@@ -2,10 +2,10 @@
 
 from omegaconf import DictConfig, OmegaConf
 
-from .arima import ARIMAForecaster
-from .auto_arima import AutoARIMAForecaster
-from .base import BaseForecaster
-from .naive import NaiveForecaster
+from .models.arima import ARIMAForecaster
+from .models.auto_arima import AutoARIMAForecaster
+from .models.base import BaseForecaster
+from .models.naive import NaiveForecaster
 
 _REGISTRY = {
     "naive": NaiveForecaster,
