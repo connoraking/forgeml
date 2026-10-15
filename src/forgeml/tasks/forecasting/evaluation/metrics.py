@@ -19,6 +19,22 @@ def root_mean_squared_error(actual: np.ndarray, predicted: np.ndarray) -> float:
     return float(np.sqrt(mean_squared_error(actual, predicted)))
 
 
+def root_mean_squared_logarithmic_error(
+    actual: np.ndarray, predicted: np.ndarray
+) -> float | None:
+    """RMSLE uses natural log(1 + value), so zero observations are supported.
+
+    The metric requires nonnegative actuals and forecasts. Return an undefined
+    score for negative values rather than clipping them or dropping observations.
+    Other requested metrics can still describe that forecast.
+    """
+    if (actual < 0).any() or (predicted < 0).any():
+        return None
+
+    log_error = np.log1p(predicted) - np.log1p(actual)
+    return float(np.sqrt(np.mean(log_error**2)))
+
+
 def mean_absolute_percentage_error(
     actual: np.ndarray, predicted: np.ndarray
 ) -> float | None:
@@ -66,6 +82,7 @@ METRICS = {
     "mae": mean_absolute_error,
     "mse": mean_squared_error,
     "rmse": root_mean_squared_error,
+    "rmsle": root_mean_squared_logarithmic_error,
     "mape": mean_absolute_percentage_error,
     "smape": symmetric_mean_absolute_percentage_error,
     "wape": weighted_absolute_percentage_error,
